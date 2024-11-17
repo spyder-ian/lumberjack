@@ -3,7 +3,7 @@
 // Note that this is v2.0 of lumberjack, and should be imported using gopkg.in
 // thusly:
 //
-//   import "gopkg.in/natefinch/lumberjack.v2"
+//	import "gopkg.in/natefinch/lumberjack.v2"
 //
 // The package name remains simply lumberjack, and the code resides at
 // https://github.com/natefinch/lumberjack under the v2.0 branch.
@@ -66,7 +66,7 @@ var _ io.WriteCloser = (*Logger)(nil)
 // `/var/log/foo/server.log`, a backup created at 6:30pm on Nov 11 2016 would
 // use the filename `/var/log/foo/server-2016-11-04T18-30-00.000.log`
 //
-// Cleaning Up Old Log Files
+// # Cleaning Up Old Log Files
 //
 // Whenever a new logfile gets created, old log files may be deleted.  The most
 // recent files according to the encoded timestamp will be retained, up to a
@@ -113,6 +113,10 @@ type Logger struct {
 
 	millCh    chan bool
 	startMill sync.Once
+
+	// Callback events to consumers to act upon
+	rotateCallback func(string)
+	closeCallback  func(string)
 }
 
 var (
@@ -161,6 +165,18 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
+func (l *Logger) SetRotateCallback(callback func(string)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.rotateCallback = callback
+}
+
+func (l *Logger) SetCloseCallback(callback func(string)) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.closeCallback = callback
+}
+
 // Close implements io.Closer, and closes the current logfile.
 func (l *Logger) Close() error {
 	l.mu.Lock()
@@ -175,6 +191,11 @@ func (l *Logger) close() error {
 	}
 	err := l.file.Close()
 	l.file = nil
+
+	// Call the callback if defined
+	if l.closeCallback != nil {
+		defer l.closeCallback(l.file.Name())
+	}
 	return err
 }
 
@@ -198,6 +219,10 @@ func (l *Logger) rotate() error {
 	}
 	if err := l.openNew(); err != nil {
 		return err
+	}
+
+	if l.rotateCallback != nil {
+		defer l.rotateCallback(l.file.Name())
 	}
 	l.mill()
 	return nil
@@ -365,9 +390,13 @@ func (l *Logger) millRunOnce() error {
 	for _, f := range compress {
 		fn := filepath.Join(l.dir(), f.Name())
 		errCompress := compressLogFile(fn, fn+compressSuffix)
+		if l.rotateCallback != nil {
+			defer l.rotateCallback(fn + compressSuffix)
+		}
 		if err == nil && errCompress != nil {
 			err = errCompress
 		}
+
 	}
 
 	return err

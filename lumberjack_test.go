@@ -162,6 +162,52 @@ func TestAutoRotate(t *testing.T) {
 	fileCount(dir, 2, t)
 }
 
+func TestAutoRotate_withcallback(t *testing.T) {
+	currentTime = fakeTime
+	megabyte = 1
+
+	dir := makeTempDir("TestAutoRotate", t)
+	defer os.RemoveAll(dir)
+
+	filename := logFile(dir)
+	l := &Logger{
+		Filename: filename,
+		MaxSize:  10,
+	}
+	rotateCalled := false
+	rcallback := func(f string) {
+		rotateCalled = true
+	}
+
+	defer l.Close()
+	l.SetRotateCallback(rcallback)
+	b := []byte("boo!")
+	n, err := l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+
+	existsWithContent(filename, b, t)
+	fileCount(dir, 1, t)
+
+	newFakeTime()
+
+	b2 := []byte("foooooo!")
+	n, err = l.Write(b2)
+	isNil(err, t)
+	equals(len(b2), n, t)
+
+	// the old logfile should be moved aside and the main logfile should have
+	// only the last write in it.
+	existsWithContent(filename, b2, t)
+
+	// the backup file will use the current fake time and have the old contents.
+	existsWithContent(backupFile(dir), b, t)
+
+	equals(rotateCalled, true, t)
+	
+	fileCount(dir, 2, t)
+}
+
 func TestFirstWriteRotate(t *testing.T) {
 	currentTime = fakeTime
 	megabyte = 1

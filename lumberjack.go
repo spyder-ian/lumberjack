@@ -220,10 +220,6 @@ func (l *Logger) rotate() error {
 	if err := l.openNew(); err != nil {
 		return err
 	}
-
-	if l.rotateCallback != nil {
-		defer l.rotateCallback(l.file.Name())
-	}
 	l.mill()
 	return nil
 }
